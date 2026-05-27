@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "com.applenote8763.videogifpwa"
+    namespace = "com.applenote8763.videogifandroid"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.applenote8763.videogifpwa"
+        applicationId "com.applenote8763.videogifandroid"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -6,6 +6,8 @@ This is the Android APK track for a personal-use video-to-GIF converter. It wrap
 
 GitHub repo: https://github.com/AppleNote8763/video-gif-android
 
+Android package id: `com.applenote8763.videogifandroid`
+
 ## Current Stack
 
 - React 18

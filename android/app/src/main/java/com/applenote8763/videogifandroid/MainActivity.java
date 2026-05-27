@@ -1,4 +1,4 @@
-package com.applenote8763.videogifpwa;
+package com.applenote8763.videogifandroid;
 
 import com.getcapacitor.BridgeActivity;
 
