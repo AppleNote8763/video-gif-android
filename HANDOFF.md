@@ -1,49 +1,42 @@
-# Video GIF Android Handoff
+# Video GIF Android 인수인계
 
-## Project Summary
+## 프로젝트 요약
 
-This is the Android APK track for a personal-use video-to-GIF converter. It wraps the React/Vite app in Capacitor Android and keeps conversion local with FFmpeg.wasm.
+개인용 동영상 GIF 변환 Android APK 프로젝트입니다. 기존 React/Vite 기반 변환 앱을 Capacitor Android로 패키징했습니다. 변환은 FFmpeg.wasm으로 기기 안에서 처리하며, 영상은 서버로 업로드하지 않습니다.
 
-GitHub repo: https://github.com/AppleNote8763/video-gif-android
+- GitHub: https://github.com/AppleNote8763/video-gif-android
+- Android package id: `com.applenote8763.videogifandroid`
+- 현재 버전: `1.1.6`
 
-Android package id: `com.applenote8763.videogifandroid`
-
-## Current Stack
+## 기술 스택
 
 - React 18
 - Vite 5
 - Tailwind CSS
 - Capacitor Android
-- @ffmpeg/ffmpeg and @ffmpeg/core
+- `@ffmpeg/ffmpeg`, `@ffmpeg/core`
 
-## Important Files
+## 주요 파일
 
-- `src/App.jsx`: Main app state, upload handling, batch queue state, conversion options, FFmpeg conversion flow, automatic GIF downloads.
-- `src/hooks/useFFmpeg.js`: Loads FFmpeg.wasm and exposes ready/loading/progress/error state.
-- `src/utils/ffmpegHelpers.js`: Validates accepted video formats.
-- `src/components/FileUploadCard.jsx`: Upload/drop UI with multiple-file selection.
-- `src/components/VideoPreview.jsx`: Source video preview.
-- `src/components/GifPreview.jsx`: GIF result list, preview, file-name editing, and manual download.
-- `scripts/copy-ffmpeg-core.mjs`: Copies FFmpeg core files into `public/ffmpeg` before dev/build.
-- `vite.config.js`: Vite config, app version injection, and dev/preview COOP/COEP headers.
-- `capacitor.config.json`: Capacitor app id/name and Android web asset directory.
-- `android/`: Capacitor Android project.
+- `src/App.jsx`: 업로드, 변환 옵션, 배치 변환, 자동 다운로드 흐름
+- `src/hooks/useFFmpeg.js`: FFmpeg.wasm 로딩 및 진행률 상태
+- `src/components/GifPreview.jsx`: 결과 미리보기, 파일명 수정, 수동 다운로드
+- `scripts/copy-ffmpeg-core.mjs`: 빌드 전 FFmpeg core 파일을 `public/ffmpeg`로 복사
+- `capacitor.config.json`: Capacitor 앱 설정
+- `android/`: Android APK 프로젝트
 
-## Current Behavior
+## 현재 동작
 
-- Supports MP4, MOV, and WEBM uploads.
-- Supports selecting multiple videos at once.
-- Multiple selected videos are converted sequentially, not in parallel.
-- Multiple selected videos are converted using each video's full detected duration.
-- Single-file conversion defaults to the video's full detected duration, while still allowing manual start/end edits.
-- GIF conversion duration is warning-only; long clips are not blocked.
-- File size over 250MB is warning-only; upload and conversion are not blocked by size.
-- Quality presets control width, FPS, color count, and palette use.
-- Completed GIFs start downloading automatically after conversion finishes.
-- Manual per-result download buttons remain available.
-- Videos are processed locally; they are not uploaded to a server.
+- MP4, MOV, WEBM 지원
+- 단일 파일 및 여러 파일 선택 지원
+- 여러 파일은 병렬이 아니라 순차 변환
+- 단일 파일은 시작/종료 시간 수정 가능
+- 여러 파일은 각 영상의 전체 길이로 변환
+- 긴 영상과 250MB 초과 파일은 차단하지 않고 경고만 표시
+- 변환 완료 후 GIF 자동 다운로드
+- 결과별 파일명 수정 및 다시 다운로드 가능
 
-## Android Build
+## 빌드
 
 ```bash
 npm install
@@ -51,37 +44,27 @@ npm run android:sync
 npm run android:build
 ```
 
-Debug APK output:
+Debug APK 위치:
 
 ```text
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Build requirements:
+필요 환경:
 
-- JDK 21.
-- Android SDK platform/build-tools matching `android/variables.gradle`.
-- On Windows, set `JAVA_HOME` and `ANDROID_HOME` before running Gradle.
-- This machine has portable local tooling under ignored `.tools/`.
+- JDK 21
+- Android SDK
+- Windows에서는 `JAVA_HOME`, `ANDROID_HOME` 설정 필요
 
-Last successful debug APK build used:
+마지막으로 재빌드한 APK:
 
-- JDK: Temurin 21.0.11
-- APK path: `android/app/build/outputs/apk/debug/app-debug.apk`
-- APK SHA256: `8696CBDD046F0556921C1FBD307D141B36162E7F2BF44B96BA2E89ABA8F7B141`
+- 파일: `C:\Users\user\Desktop\video-gif-android-v1.1.6-debug.apk`
+- SHA256: `57252E0F52B8B8D77F35747A34CB8D9BD3CD0B7191B0B5A143252774AF9E2B8D`
 
-## Recent Changes
+## 작업 메모
 
-- Capacitor Android project added.
-- PWA/Vercel-specific files and service worker registration removed from this Android repo.
-- `vite-plugin-pwa` removed.
-- Package name changed to `video-gif-android`.
-- `.tools/` ignored for local portable JDK/Android SDK.
-
-## Notes For Next Chat
-
-- The original Vercel/PWA project remains separate in `AppleNote8763/video-gif-pwa`.
-- The user does not want UI changes unless explicitly requested.
-- Practical S10e/mobile behavior matters more than broad public-user guardrails.
-- Do not reintroduce hard duration or file-size blocking unless explicitly requested.
-- Background conversion is still not guaranteed in Android WebView; keep the app open during conversion.
+- 원본 PWA/Vercel 프로젝트는 `AppleNote8763/video-gif-pwa`에 따로 유지됩니다.
+- 이 repo에서는 PWA/Vercel 설정과 service worker를 제거했습니다.
+- 사용자가 명시하지 않으면 UI는 변경하지 않는 편이 좋습니다.
+- 하드 시간 제한이나 파일 크기 차단은 다시 넣지 마세요. 현재 정책은 경고만 표시하는 방식입니다.
+- Android WebView에서도 백그라운드 변환은 보장되지 않습니다. 변환 중에는 앱을 켜두는 안내가 필요합니다.
