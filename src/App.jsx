@@ -356,7 +356,7 @@ export default function App() {
             설치형 브라우저 GIF 변환 앱
           </h1>
           <p className="mt-4 max-w-3xl text-slate-300 sm:text-lg">
-            MP4 / MOV / WEBM을 브라우저에서 바로 GIF로 변환하세요. 빠른 변환, 미리보기, 다운로드, 그리고 PWA 설치 지원.
+            MP4 / MOV / WEBM을 Android 앱에서 바로 GIF로 변환하세요. 빠른 변환, 미리보기, 다운로드를 지원합니다.
           </p>
           <p className="mt-3 text-xs text-slate-500">v{APP_VERSION}</p>
         </header>
