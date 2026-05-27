@@ -48,6 +48,20 @@ GitHub Pages 같은 하위 경로 배포가 필요할 때만 환경변수로 bas
 VITE_BASE_PATH=/video-gif-pwa/ npm run build
 ```
 
+## Android APK
+
+이 저장소는 Capacitor 기반 Android 프로젝트를 포함합니다. 웹/PWA 기능은 유지하고, `dist` 빌드 결과를 Android WebView 앱 안에 동기화합니다.
+
+```bash
+npm install
+npm run android:sync
+npm run android:build
+```
+
+Debug APK 산출물은 빌드 성공 후 `android/app/build/outputs/apk/debug/app-debug.apk`에 생성됩니다.
+
+APK 빌드에는 JDK가 필요합니다. Windows에서는 `java`가 PATH에 있거나 `JAVA_HOME`이 설치된 JDK 경로를 가리켜야 합니다.
+
 ## Vercel 배포
 
 Vercel 프로젝트 설정은 기본값을 사용합니다.

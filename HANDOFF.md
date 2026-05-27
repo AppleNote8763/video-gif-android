@@ -13,6 +13,7 @@ Production URL: https://video-gif-pwa.vercel.app/
 - Tailwind CSS
 - vite-plugin-pwa
 - @ffmpeg/ffmpeg and @ffmpeg/core
+- Capacitor Android
 - Vercel deployment with cross-origin isolation headers
 
 ## Important Files
@@ -26,6 +27,8 @@ Production URL: https://video-gif-pwa.vercel.app/
 - `vite.config.js`: Vite, PWA manifest, app version injection, and dev/preview COOP/COEP headers.
 - `vercel.json`: Vercel COOP/COEP/CORP headers for FFmpeg.wasm and PWA behavior.
 - `scripts/copy-ffmpeg-core.mjs`: Copies FFmpeg core files into `public/ffmpeg` before dev/build.
+- `capacitor.config.json`: Capacitor app id/name and Android web asset directory.
+- `android/`: Generated Capacitor Android project for APK builds.
 
 ## Current Behavior
 
@@ -43,6 +46,15 @@ Production URL: https://video-gif-pwa.vercel.app/
 - The UI warns users to keep the app open while conversion is running because screen-off/background behavior can interrupt FFmpeg.wasm.
 
 ## Recent Change
+
+The app has an Android APK packaging track:
+
+- Capacitor Android was added around the existing React/Vite PWA.
+- `npm run android:sync` builds the web app and syncs `dist` into Android assets.
+- `npm run android:build` runs sync and then `gradlew.bat assembleDebug`.
+- Debug APK output should be `android/app/build/outputs/apk/debug/app-debug.apk`.
+- Android builds require a JDK. On the current Windows machine, Gradle stopped because `JAVA_HOME` was not set and `java` was not in PATH.
+- Vercel/PWA deployment remains separate and is not removed by the Android repo.
 
 The app was updated to `1.1.6` with these behavior changes:
 
