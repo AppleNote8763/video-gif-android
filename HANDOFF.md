@@ -53,7 +53,7 @@ The app has an Android APK packaging track:
 - `npm run android:sync` builds the web app and syncs `dist` into Android assets.
 - `npm run android:build` runs sync and then `gradlew.bat assembleDebug`.
 - Debug APK output should be `android/app/build/outputs/apk/debug/app-debug.apk`.
-- Android builds require a JDK. On the current Windows machine, Gradle stopped because `JAVA_HOME` was not set and `java` was not in PATH.
+- Android builds require JDK 21 plus Android SDK platform/build-tools. Portable copies were prepared under the local ignored `.tools` directory on this machine.
 - Vercel/PWA deployment remains separate and is not removed by the Android repo.
 
 The app was updated to `1.1.6` with these behavior changes:

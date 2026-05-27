@@ -60,7 +60,7 @@ npm run android:build
 
 Debug APK 산출물은 빌드 성공 후 `android/app/build/outputs/apk/debug/app-debug.apk`에 생성됩니다.
 
-APK 빌드에는 JDK가 필요합니다. Windows에서는 `java`가 PATH에 있거나 `JAVA_HOME`이 설치된 JDK 경로를 가리켜야 합니다.
+APK 빌드에는 JDK 21이 필요합니다. Windows에서는 `java`가 PATH에 있거나 `JAVA_HOME`이 설치된 JDK 21 경로를 가리켜야 합니다.
 
 ## Vercel 배포
 
