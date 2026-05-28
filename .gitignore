@@ -2,6 +2,8 @@ node_modules
 dist
 public/ffmpeg
 .tools
+release-apks
+apk-analysis
 PROJECT_HANDOFF.md
 .env
 .env.local

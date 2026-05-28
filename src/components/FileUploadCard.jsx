@@ -1,4 +1,13 @@
-export default function FileUploadCard({ onFileSelect, fileName, fileNames = [], error, maxSize, disabled }) {
+export default function FileUploadCard({
+  onFileSelect,
+  onNativePick,
+  fileName,
+  fileNames = [],
+  error,
+  maxSize,
+  disabled,
+  nativePicker = false
+}) {
   const handleFiles = (files) => {
     if (files.length > 0) {
       onFileSelect(Array.from(files))
@@ -24,6 +33,15 @@ export default function FileUploadCard({ onFileSelect, fileName, fileNames = [],
         </p>
       </div>
       <div
+        role={nativePicker ? 'button' : undefined}
+        tabIndex={nativePicker ? 0 : undefined}
+        onClick={nativePicker ? onNativePick : undefined}
+        onKeyDown={nativePicker ? (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onNativePick?.()
+          }
+        } : undefined}
         onDrop={handleDrop}
         onDragOver={(event) => event.preventDefault()}
         onDragEnter={(event) => event.preventDefault()}
@@ -33,17 +51,21 @@ export default function FileUploadCard({ onFileSelect, fileName, fileNames = [],
           <div className="rounded-full border border-slate-700 bg-slate-900 p-4 text-2xl text-sky-400">⬆</div>
         </div>
         <div className="mt-5 space-y-3">
-          <p className="text-base font-medium text-white">파일을 드래그하거나 클릭하여 업로드하세요</p>
+          <p className="text-base font-medium text-white">
+            {nativePicker ? '탭해서 동영상 파일을 선택하세요' : '파일을 드래그하거나 클릭하여 업로드하세요'}
+          </p>
           <p className="text-sm text-slate-500">MP4, MOV, WEBM 파일을 지원합니다.</p>
         </div>
-        <input
-          type="file"
-          accept="video/mp4,video/webm,video/quicktime"
-          multiple
-          onChange={handleChange}
-          disabled={disabled}
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-        />
+        {!nativePicker && (
+          <input
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime"
+            multiple
+            onChange={handleChange}
+            disabled={disabled}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+        )}
       </div>
       {fileName && (
         <div className="mt-5 rounded-3xl bg-slate-950 px-4 py-3 text-sm text-slate-200">

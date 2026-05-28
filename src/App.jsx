@@ -1,16 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchFile } from '@ffmpeg/ffmpeg'
 import FileUploadCard from './components/FileUploadCard'
-import VideoPreview from './components/VideoPreview'
 import GifPreview from './components/GifPreview'
 import { useFFmpeg } from './hooks/useFFmpeg'
 import { validateVideoFile } from './utils/ffmpegHelpers'
-import { formatSeconds } from './utils/formatTime'
+import { isNativeAndroid, NativeGifConverter } from './utils/nativeGifConverter'
 
 const MAX_FILE_SIZE = 250 * 1024 * 1024
 const LONG_GIF_WARNING_DURATION = 20
-const RECOMMENDED_GIF_DURATION = 10
 const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev'
+const EMPTY_NATIVE_PROGRESS = {
+  current: 0,
+  total: 0,
+  fileName: '',
+  phaseLabel: '',
+  currentFileProgress: 0,
+  overallProgress: 0,
+  completed: 0,
+  failed: 0
+}
 const QUALITY_PRESETS = {
   compact: {
     label: '저용량',
@@ -32,6 +40,14 @@ const QUALITY_PRESETS = {
     label: '고화질',
     description: '선명도 우선, 용량 증가 가능',
     width: 720,
+    fps: 15,
+    maxColors: 256,
+    paletteUse: 'paletteuse=dither=sierra2_4a'
+  },
+  fullHd: {
+    label: '원본 유지',
+    description: '파일별 원본 해상도 유지, 최대 1080p',
+    width: 1080,
     fps: 15,
     maxColors: 256,
     paletteUse: 'paletteuse=dither=sierra2_4a'
@@ -69,14 +85,18 @@ function downloadGif(gifURL, fileName) {
   link.remove()
 }
 
-function getVideoDuration(file) {
+function getVideoMetadata(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const video = document.createElement('video')
     video.preload = 'metadata'
     video.onloadedmetadata = () => {
       URL.revokeObjectURL(url)
-      resolve(video.duration || 0)
+      resolve({
+        duration: video.duration || 0,
+        width: video.videoWidth || 0,
+        height: video.videoHeight || 0
+      })
     }
     video.onerror = () => {
       URL.revokeObjectURL(url)
@@ -86,62 +106,85 @@ function getVideoDuration(file) {
   })
 }
 
+async function getVideoDuration(file) {
+  const metadata = await getVideoMetadata(file)
+  return metadata.duration
+}
+
 export default function App() {
   const { ffmpeg, ready, loading: ffmpegLoading, progress: ffmpegProgress, error: ffmpegError } = useFFmpeg()
+  const nativeAndroid = isNativeAndroid()
   const [file, setFile] = useState(null)
   const [selectedFiles, setSelectedFiles] = useState([])
-  const [videoURL, setVideoURL] = useState('')
-  const [videoDuration, setVideoDuration] = useState(0)
-  const [startTime, setStartTime] = useState(0)
-  const [endTime, setEndTime] = useState(0)
-  const [qualityPreset, setQualityPreset] = useState('balanced')
-  const [fps, setFps] = useState(10)
-  const [width, setWidth] = useState(480)
+  const [nativeFiles, setNativeFiles] = useState([])
+  const [qualityPreset, setQualityPreset] = useState('fullHd')
+  const [fps, setFps] = useState(15)
+  const [width, setWidth] = useState(1080)
   const [gifURL, setGifURL] = useState('')
   const [downloadFileName, setDownloadFileName] = useState('video-to-gif.gif')
   const [converting, setConverting] = useState(false)
   const [progress, setProgress] = useState(0)
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, fileName: '' })
+  const [nativeProgress, setNativeProgress] = useState(EMPTY_NATIVE_PROGRESS)
   const [results, setResults] = useState([])
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
 
   const statusText = useMemo(() => {
+    if (nativeAndroid) return 'Android 네이티브 변환 준비 완료 - 선택한 파일을 그대로 순차 변환합니다.'
     if (ffmpegError) return `FFmpeg 로드 오류: ${ffmpegError}`
     if (ffmpegLoading) return 'FFmpeg를 로드 중입니다. 잠시만 기다려주세요.'
     if (!ready) return 'FFmpeg 준비 중...'
     return 'FFmpeg 준비 완료 - 파일을 업로드하고 변환하세요.'
-  }, [ffmpegError, ffmpegLoading, ready])
+  }, [ffmpegError, ffmpegLoading, nativeAndroid, ready])
 
   const selectedPreset = QUALITY_PRESETS[qualityPreset]
-  const clipDuration = Math.max(0, endTime - startTime)
 
   const displayGuidanceText = useMemo(() => {
-    if (!file) return '모바일에서는 3~10초, 320~480px, 8~10FPS 설정이 안정적입니다.'
-    if (selectedFiles.length > 1) return '여러 파일은 각 영상의 전체 길이를 자동으로 읽어 순서대로 변환합니다. 긴 영상은 휴대폰에서 느리거나 실패할 수 있습니다.'
-    if (clipDuration > LONG_GIF_WARNING_DURATION) return `${LONG_GIF_WARNING_DURATION}초를 초과하는 GIF는 휴대폰에서 변환이 느리거나 실패할 수 있습니다. 화질과 프레임은 선택한 설정 그대로 유지됩니다.`
-    if (clipDuration > RECOMMENDED_GIF_DURATION) return '10초를 넘는 GIF는 용량이 커질 수 있습니다. 모바일에서는 저용량 또는 기본 프리셋을 권장합니다.'
-    return 'GIF 용량이 적당합니다. 공유용이면 저용량 또는 기본 프리셋을 사용하세요.'
-  }, [clipDuration, file, selectedFiles.length])
+    if (!file && nativeFiles.length === 0) return '기본값은 원본 비율과 해상도를 유지하되, 기기 부담을 줄이기 위해 최대 1080p까지만 변환합니다.'
+    if (nativeAndroid) return 'Android에서는 선택한 파일 목록을 네이티브 FFmpeg로 순서대로 변환하고 Pictures/GIF Maker에 저장합니다.'
+    if (width >= 1080) return '원본 비율을 유지하고, 원본이 1080p보다 작으면 키우지 않습니다. 변환 시간과 용량은 증가할 수 있습니다.'
+    return '선택한 각 영상의 전체 길이를 자동으로 읽어 순서대로 변환합니다. 긴 영상은 휴대폰에서 느리거나 실패할 수 있습니다.'
+  }, [file, nativeAndroid, nativeFiles.length, width])
 
   useEffect(() => {
     return () => {
-      if (videoURL) URL.revokeObjectURL(videoURL)
       if (gifURL) URL.revokeObjectURL(gifURL)
     }
-  }, [videoURL, gifURL])
+  }, [gifURL])
 
   useEffect(() => {
     setProgress(Math.round(ffmpegProgress * 100))
   }, [ffmpegProgress])
 
   useEffect(() => {
-    if (file && videoDuration > 0 && endTime === 0) {
-      setEndTime(videoDuration)
-    }
-  }, [file, videoDuration, endTime])
+    if (!nativeAndroid) return undefined
 
-  const handleFile = (incomingFiles) => {
+    let progressListener
+    NativeGifConverter.addListener('nativeGifProgress', (event) => {
+      const currentFileProgress = Math.min(100, Math.max(0, Number(event.currentFileProgress || 0)))
+      const overallProgress = Math.min(100, Math.max(0, Number(event.overallProgress || 0)))
+      setProgress(currentFileProgress)
+      setNativeProgress({
+        current: Number(event.current || 0),
+        total: Number(event.total || 0),
+        fileName: event.fileName || '',
+        phaseLabel: event.phaseLabel || '',
+        currentFileProgress,
+        overallProgress,
+        completed: Number(event.completed || 0),
+        failed: Number(event.failed || 0)
+      })
+    }).then((listener) => {
+      progressListener = listener
+    })
+
+    return () => {
+      progressListener?.remove()
+    }
+  }, [nativeAndroid])
+
+  const handleFile = async (incomingFiles) => {
     setError('')
     setSuccessMessage('')
     const files = Array.isArray(incomingFiles) ? incomingFiles : [incomingFiles]
@@ -152,6 +195,7 @@ export default function App() {
     }
     const firstFile = files[0]
     setSelectedFiles(files)
+    setNativeFiles([])
     setFile(firstFile)
     results.forEach((result) => {
       if (result.gifURL) URL.revokeObjectURL(result.gifURL)
@@ -159,24 +203,43 @@ export default function App() {
     setResults([])
     setGifURL('')
     setDownloadFileName(createGifFileName(firstFile.name))
-    setVideoDuration(0)
-    setStartTime(0)
-    setEndTime(0)
     setBatchProgress({ current: 0, total: files.length, fileName: '' })
-    const url = URL.createObjectURL(firstFile)
-    if (videoURL) URL.revokeObjectURL(videoURL)
-    setVideoURL(url)
     const oversizedCount = files.filter((selectedFile) => selectedFile.size > MAX_FILE_SIZE).length
     if (oversizedCount > 0) {
       setError(`${oversizedCount}개 파일이 ${formatFileSize(MAX_FILE_SIZE)}를 초과했습니다. 업로드는 계속되지만 휴대폰에서는 변환이 느리거나 실패할 수 있습니다.`)
     }
   }
 
-  const handleMetadata = (event) => {
-    const duration = Math.floor(event.target.duration || 0)
-    setVideoDuration(duration)
-    if (endTime === 0 || endTime > duration) {
-      setEndTime(duration)
+  const handleNativePick = async () => {
+    if (!nativeAndroid || converting) return
+
+    setError('')
+    setSuccessMessage('')
+    setResults([])
+    setGifURL('')
+    setNativeProgress(EMPTY_NATIVE_PROGRESS)
+
+    try {
+      const response = await NativeGifConverter.pickVideos()
+      const pickedFiles = Array.isArray(response.files) ? response.files : []
+      if (pickedFiles.length === 0) return
+
+      setNativeFiles(pickedFiles)
+      setSelectedFiles([])
+      setFile({
+        name: pickedFiles[0].name,
+        size: pickedFiles[0].size || 0,
+        type: pickedFiles[0].mimeType || 'video/mp4'
+      })
+      setDownloadFileName(createGifFileName(pickedFiles[0].name))
+      setBatchProgress({ current: 0, total: pickedFiles.length, fileName: '' })
+
+      const oversizedCount = pickedFiles.filter((selectedFile) => selectedFile.size > MAX_FILE_SIZE).length
+      if (oversizedCount > 0) {
+        setError(`${oversizedCount}개 파일이 ${formatFileSize(MAX_FILE_SIZE)}를 초과했습니다. 변환은 계속되지만 휴대폰에서는 느리거나 실패할 수 있습니다.`)
+      }
+    } catch (pickError) {
+      setError(pickError.message || String(pickError))
     }
   }
 
@@ -190,6 +253,50 @@ export default function App() {
   const handleConvert = async () => {
     setError('')
     setSuccessMessage('')
+    if (nativeAndroid) {
+      if (nativeFiles.length === 0) {
+        setError('동영상 파일을 먼저 선택해주세요.')
+        return
+      }
+
+      setConverting(true)
+      setProgress(0)
+      setNativeProgress({ ...EMPTY_NATIVE_PROGRESS, total: nativeFiles.length })
+      setResults(nativeFiles.map((selectedFile, index) => ({
+        id: `${Date.now()}-${index}-${selectedFile.name}`,
+        sourceName: selectedFile.name,
+        fileName: createGifFileName(selectedFile.name),
+        status: 'queued',
+        gifURL: '',
+        error: ''
+      })))
+
+      try {
+        const response = await NativeGifConverter.convertVideos({
+          files: nativeFiles,
+          width,
+          fps,
+          maxColors: selectedPreset.maxColors,
+          paletteUse: selectedPreset.paletteUse
+        })
+        const outputs = Array.isArray(response.outputs) ? response.outputs : []
+        const failures = Array.isArray(response.failures) ? response.failures : []
+        setResults((currentResults) => currentResults.map((result) => {
+          const output = outputs.find((item) => item.sourceName === result.sourceName)
+          const failure = failures.find((item) => item.sourceName === result.sourceName)
+          if (output) return { ...result, status: 'done', fileName: output.fileName, savedPath: output.savedPath }
+          if (failure) return { ...result, status: 'failed', error: failure.message || '변환에 실패했습니다.' }
+          return result
+        }))
+        setSuccessMessage(`${response.completed || 0}/${response.total || nativeFiles.length}개 GIF 변환이 완료되었습니다. 저장 위치: Pictures/GIF Maker`)
+      } catch (nativeError) {
+        setError(nativeError.message || String(nativeError))
+      } finally {
+        setConverting(false)
+      }
+      return
+    }
+
     const filesToConvert = selectedFiles.length > 0 ? selectedFiles : file ? [file] : []
     if (filesToConvert.length === 0) {
       setError('동영상 파일을 먼저 업로드해주세요.')
@@ -197,10 +304,6 @@ export default function App() {
     }
     if (!ready) {
       setError('FFmpeg 준비가 완료될 때까지 기다려주세요.')
-      return
-    }
-    if (filesToConvert.length === 1 && (startTime < 0 || endTime <= 0 || startTime >= endTime)) {
-      setError('시작 시간과 종료 시간을 올바르게 설정해주세요.')
       return
     }
     setConverting(true)
@@ -221,7 +324,7 @@ export default function App() {
     }))
     setResults(queuedResults)
 
-    const convertFile = async (selectedFile, range) => {
+    const convertFile = async (selectedFile, duration) => {
       const extension = selectedFile.name.split('.').pop() || 'mp4'
       const inputName = `input.${extension}`
       const paletteName = 'palette.png'
@@ -237,21 +340,19 @@ export default function App() {
       try {
         ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile))
 
-        const videoFilter = `fps=${fps},scale=${width}:-1:flags=lanczos`
-        const start = range?.start ?? startTime
-        const end = range?.end ?? endTime
+        const videoFilter = `fps=${fps},scale='if(gt(min(iw,ih),${width}),if(gt(iw,ih),-2,${width}),iw)':'if(gt(min(iw,ih),${width}),if(gt(iw,ih),${width},-2),ih)':flags=lanczos`
 
         await ffmpeg.run(
-          '-ss', `${start}`,
-          '-to', `${end}`,
+          '-ss', '0',
+          '-t', `${duration}`,
           '-i', inputName,
           '-vf', `${videoFilter},palettegen=max_colors=${selectedPreset.maxColors}:stats_mode=diff`,
           paletteName
         )
 
         await ffmpeg.run(
-          '-ss', `${start}`,
-          '-to', `${end}`,
+          '-ss', '0',
+          '-t', `${duration}`,
           '-i', inputName,
           '-i', paletteName,
           '-filter_complex', `${videoFilter}[x];[x][1:v]${selectedPreset.paletteUse}`,
@@ -287,19 +388,17 @@ export default function App() {
         )))
 
         try {
-          const range = filesToConvert.length > 1
-            ? { start: 0, end: await getVideoDuration(selectedFile) }
-            : { start: startTime, end: endTime }
+          const duration = await getVideoDuration(selectedFile)
 
-          if (!range.end || range.end <= range.start) {
-            throw new Error('변환할 영상 구간을 확인할 수 없습니다.')
+          if (!duration || duration <= 0) {
+            throw new Error('변환할 영상 길이를 확인할 수 없습니다.')
           }
 
-          if (range.end > LONG_GIF_WARNING_DURATION) {
+          if (duration > LONG_GIF_WARNING_DURATION) {
             setError(`${selectedFile.name}의 길이가 ${LONG_GIF_WARNING_DURATION}초를 초과합니다. 변환은 계속되지만 휴대폰에서는 느리거나 실패할 수 있습니다.`)
           }
 
-          const converted = await convertFile(selectedFile, range)
+          const converted = await convertFile(selectedFile, duration)
           const convertedFileName = createGifFileName(selectedFile.name)
           completedCount += 1
           setResults((currentResults) => currentResults.map((result) => (
@@ -356,7 +455,7 @@ export default function App() {
             설치형 브라우저 GIF 변환 앱
           </h1>
           <p className="mt-4 max-w-3xl text-slate-300 sm:text-lg">
-            MP4 / MOV / WEBM을 Android 앱에서 바로 GIF로 변환하세요. 빠른 변환, 미리보기, 다운로드를 지원합니다.
+            MP4 / MOV / WEBM을 Android 앱에서 바로 GIF로 변환하세요. 여러 영상을 선택하면 전체 길이 기준으로 순서대로 변환하고 저장합니다.
           </p>
           <p className="mt-3 text-xs text-slate-500">v{APP_VERSION}</p>
         </header>
@@ -365,29 +464,18 @@ export default function App() {
           <section className="min-w-0 space-y-6">
             <FileUploadCard
               onFileSelect={handleFile}
+              onNativePick={handleNativePick}
               fileName={file?.name}
-              fileNames={selectedFiles.map((selectedFile) => selectedFile.name)}
+              fileNames={nativeAndroid ? nativeFiles.map((selectedFile) => selectedFile.name) : selectedFiles.map((selectedFile) => selectedFile.name)}
               error={error}
               maxSize={MAX_FILE_SIZE}
-              disabled={converting || ffmpegLoading}
+              disabled={converting || (!nativeAndroid && ffmpegLoading)}
+              nativePicker={nativeAndroid}
             />
 
             <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-soft">
-              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold text-white">영상 미리보기</h2>
-                  <p className="text-sm text-slate-400">업로드한 영상의 재생 시간을 확인하고 값을 조정하세요.</p>
-                </div>
-                <div className="rounded-2xl bg-slate-800 px-4 py-2 text-sm text-slate-300">
-                  {videoDuration ? `총 길이 ${formatSeconds(videoDuration)}` : '영상 등록 후 길이 확인'}
-                </div>
-              </div>
-              <VideoPreview previewURL={videoURL} onLoadedMetadata={handleMetadata} />
-            </div>
-
-            <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-soft">
               <h2 className="mb-4 text-xl font-semibold text-white">변환 옵션</h2>
-              <div className="mb-5 grid gap-3 sm:grid-cols-3">
+              <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {Object.entries(QUALITY_PRESETS).map(([presetKey, preset]) => (
                   <button
                     key={presetKey}
@@ -401,7 +489,7 @@ export default function App() {
                     } disabled:cursor-not-allowed disabled:opacity-60`}
                   >
                     <span className="block text-sm font-semibold">{preset.label}</span>
-                    <span className="mt-1 block text-xs text-slate-400">{preset.width}px / {preset.fps}FPS</span>
+                    <span className="mt-1 block text-xs text-slate-400">{preset.width}p / {preset.fps}FPS</span>
                     <span className="mt-2 block text-xs text-slate-500">{preset.description}</span>
                   </button>
                 ))}
@@ -410,30 +498,6 @@ export default function App() {
                 {displayGuidanceText}
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
-                <label className="space-y-2 text-sm text-slate-300">
-                  <span>시작 시간 (초)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={startTime}
-                    disabled={selectedFiles.length > 1}
-                    onChange={(e) => setStartTime(Number(e.target.value))}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-                </label>
-                <label className="space-y-2 text-sm text-slate-300">
-                  <span>종료 시간 (초)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={endTime}
-                    disabled={selectedFiles.length > 1}
-                    onChange={(e) => setEndTime(Number(e.target.value))}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-                </label>
                 <label className="space-y-2 text-sm text-slate-300">
                   <div className="flex items-center justify-between">
                     <span>FPS 설정</span>
@@ -450,23 +514,21 @@ export default function App() {
                   <p className="text-xs text-slate-500">모바일 권장 범위는 8~10FPS, 최대 15FPS입니다.</p>
                 </label>
                 <label className="space-y-2 text-sm text-slate-300">
-                  <span>GIF 폭 (px)</span>
+                  <span>GIF 해상도 상한 (p)</span>
                   <input
                     type="number"
                     min="160"
-                    max="720"
+                    max="1080"
                     step="16"
                     value={width}
-                    onChange={(e) => setWidth(Math.min(720, Math.max(160, Number(e.target.value))))}
+                    onChange={(e) => setWidth(Math.min(1080, Math.max(160, Number(e.target.value))))}
                     className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-sky-400"
                   />
-                  <p className="text-xs text-slate-500">모바일에서는 320~480px를 권장합니다.</p>
+                  <p className="text-xs text-slate-500">원본 비율을 유지하고, 파일별 해상도를 최대 1080p까지만 제한합니다.</p>
                 </label>
               </div>
               <div className="mt-4 rounded-2xl bg-slate-950/70 px-4 py-3 text-sm text-slate-400">
-                {selectedFiles.length > 1
-                  ? '여러 파일 선택 시 각 영상의 전체 길이를 자동으로 변환합니다.'
-                  : `선택 구간: ${formatSeconds(clipDuration)}`}
+                선택한 각 영상의 전체 길이를 자동으로 읽어 GIF로 변환합니다.
               </div>
             </div>
           </section>
@@ -478,10 +540,10 @@ export default function App() {
               <div className="space-y-4">
                 <button
                   onClick={handleConvert}
-                  disabled={!file || converting || ffmpegLoading || !!ffmpegError}
+                  disabled={nativeAndroid ? nativeFiles.length === 0 || converting : !file || converting || ffmpegLoading || !!ffmpegError}
                   className="inline-flex w-full items-center justify-center rounded-3xl bg-sky-500 px-5 py-4 text-base font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
                 >
-                  {converting ? 'GIF 변환 중...' : selectedFiles.length > 1 ? 'GIF 순차 변환 시작' : 'GIF 변환 시작'}
+                  {converting ? 'GIF 변환 중...' : nativeAndroid ? nativeFiles.length > 1 ? '선택한 GIF 순차 변환 시작' : '선택한 GIF 변환 시작' : selectedFiles.length > 1 ? 'GIF 순차 변환 시작' : 'GIF 변환 시작'}
                 </button>
                 <p className="rounded-3xl border border-sky-400/30 bg-sky-400/10 px-4 py-3 text-sm text-sky-100">
                   변환 중에는 앱을 계속 열어두세요. 화면이 꺼지면 변환이 중단될 수 있습니다.
@@ -494,15 +556,33 @@ export default function App() {
                       {batchProgress.current}/{batchProgress.total} 변환 중: {batchProgress.fileName}
                     </p>
                   )}
+                  {nativeProgress.current > 0 && (
+                    <div className="mt-2 space-y-1 text-slate-400">
+                      <p>{nativeProgress.current}/{nativeProgress.total} 변환 중: {nativeProgress.fileName}</p>
+                      <p>현재 단계: {nativeProgress.phaseLabel || '준비 중'}</p>
+                      <p>완료 {nativeProgress.completed}개 · 실패 {nativeProgress.failed}개</p>
+                    </div>
+                  )}
                 </div>
                 <div className="rounded-3xl bg-slate-950/70 p-4">
                   <div className="mb-2 flex items-center justify-between text-sm text-slate-400">
-                    <span>진행률</span>
+                    <span>현재 파일 진행률</span>
                     <span>{Math.min(progress, 100)}%</span>
                   </div>
                   <div className="h-3 overflow-hidden rounded-full bg-slate-800">
                     <div className="h-full rounded-full bg-sky-400 transition-all" style={{ width: `${progress}%` }} />
                   </div>
+                  {nativeAndroid && (
+                    <>
+                      <div className="mb-2 mt-4 flex items-center justify-between text-sm text-slate-400">
+                        <span>전체 진행률</span>
+                        <span>{Math.min(nativeProgress.overallProgress, 100)}%</span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-slate-800">
+                        <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${nativeProgress.overallProgress}%` }} />
+                      </div>
+                    </>
+                  )}
                 </div>
                 {successMessage && <div className="rounded-3xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-200">{successMessage}</div>}
                 {error && <div className="rounded-3xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>}
